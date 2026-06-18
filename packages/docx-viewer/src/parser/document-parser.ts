@@ -90,11 +90,15 @@ export class DocumentParser {
   }
 
   private parseBody(): Section[] {
+    console.log('[DocumentParser] parseBody() called');
     const sections: Section[] = [];
     const body = this.documentXml.querySelector('w\\:body, body');
+    console.log('[DocumentParser] <w:body> found:', !!body);
     if (!body) return sections;
 
     const children = Array.from(body.children);
+    console.log('[DocumentParser] Body children count:', children.length);
+    console.log('[DocumentParser] Body children:', children.map((c, i) => ({ index: i, localName: c.localName, tagName: c.tagName })));
     let currentBlocks: Block[] = [];
     
     for (const child of children) {
@@ -126,6 +130,7 @@ export class DocumentParser {
   }
 
   private parseParagraph(element: Element): Paragraph {
+    console.log('[DocumentParser] Parsing paragraph, tag:', element.localName, element.tagName);
     const propertiesEl = element.querySelector('w\\:pPr, pPr');
     const runs = this.parseParagraphChildren(element);
 

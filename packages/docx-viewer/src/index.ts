@@ -43,7 +43,9 @@ export async function renderAsync(
   styleContainer?: HTMLElement,
   options?: ParseOptions
 ): Promise<void> {
+  console.log('[DocxViewer] renderAsync called');
   const doc = await parseAsync(data, options);
+  console.log('[DocxViewer] Parsed doc:', doc);
   await renderDocument(doc, container, styleContainer);
 }
 
