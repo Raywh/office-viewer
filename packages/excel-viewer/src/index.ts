@@ -27,16 +27,67 @@ async function parseWorkbook(data: ArrayBuffer, options?: ParseOptions): Promise
     definedNames: new Map()
   };
 
+  // 读取 sharedStrings.xml（如果有）
+  const sharedStrings: string[] = [];
+  const sharedStringsPart = zipPackage.getPart('xl/sharedStrings.xml');
+  if (sharedStringsPart) {
+    const xml = sharedStringsPart.getXml();
+    const siNodes = xml.querySelectorAll('si');
+    for (const siNode of siNodes) {
+      const tNode = siNode.querySelector('t');
+      if (tNode) {
+        sharedStrings.push(tNode.textContent || '');
+      }
+    }
+  }
+
   // 尝试读取 workbook.xml 获取 sheet 列表
   const workbookPart = zipPackage.getPart('xl/workbook.xml');
   if (workbookPart) {
     const xml = workbookPart.getXml();
     const sheetNodes = xml.querySelectorAll('sheet');
-    for (const sheetNode of sheetNodes) {
-      const name = sheetNode.getAttribute('name') || 'Sheet';
+    for (let i = 0; i < sheetNodes.length; i++) {
+      const sheetNode = sheetNodes[i];
+      const name = sheetNode.getAttribute('name') || `Sheet${i + 1}`;
+      
+      // 读取对应的 sheet xml
+      const sheetPart = zipPackage.getPart(`xl/worksheets/sheet${i + 1}.xml`);
+      const rows: string[][] = [];
+      
+      if (sheetPart) {
+        const sheetXml = sheetPart.getXml();
+        const rowNodes = sheetXml.querySelectorAll('row');
+        
+        for (const rowNode of rowNodes) {
+          const cells: string[] = [];
+          const cellNodes = rowNode.querySelectorAll('c');
+          
+          for (const cellNode of cellNodes) {
+            const t = cellNode.getAttribute('t');
+            const vNode = cellNode.querySelector('v');
+            let value = '';
+            
+            if (vNode) {
+              const v = vNode.textContent || '';
+              if (t === 's') {
+                // shared string
+                const index = parseInt(v, 10);
+                if (!isNaN(index) && index < sharedStrings.length) {
+                  value = sharedStrings[index];
+                }
+              } else {
+                value = v;
+              }
+            }
+            cells.push(value);
+          }
+          rows.push(cells);
+        }
+      }
+      
       workbook.sheets.push({
         name,
-        rows: []
+        rows
       });
     }
   }
@@ -77,28 +128,51 @@ export function mountExcel(container: HTMLElement, workbook: Workbook, options?:
   // 渲染第一个 sheet
   const sheet = workbook.sheets[0];
   
+  // 计算最大列数
+  let maxCols = 10;
+  for (const row of sheet.rows) {
+    if (row.length > maxCols) {
+      maxCols = row.length;
+    }
+  }
+  
   const html = `
     <div class="excel-viewer">
       <div class="excel-sheet-tabs">
-        <div class="excel-sheet-tab active">${sheet.name}</div>
+        ${workbook.sheets.map((s, i) => `
+          <div class="excel-sheet-tab ${i === 0 ? 'active' : ''}" data-index="${i}">${s.name}</div>
+        `).join('')}
       </div>
       <div class="excel-sheet-container">
         <div class="excel-grid-container">
           <div class="excel-header-row">
             <div class="excel-corner"></div>
-            ${Array.from({ length: Math.max(10, sheet.rows[0]?.length || 0) }, (_, i) => 
-              `<div class="excel-header-cell">${String.fromCharCode(65 + i)}</div>`
-            ).join('')}
+            ${Array.from({ length: maxCols }, (_, i) => {
+              let colName = '';
+              let n = i;
+              while (true) {
+                colName = String.fromCharCode(65 + (n % 26)) + colName;
+                n = Math.floor(n / 26) - 1;
+                if (n < 0) break;
+              }
+              return `<div class="excel-header-cell">${colName}</div>`;
+            }).join('')}
           </div>
           <div class="excel-rows-container">
-            ${sheet.rows.map((row, rowIndex) => `
-              <div class="excel-row">
-                <div class="excel-row-header">${rowIndex + 1}</div>
-                ${row.map((cell) => `
-                  <div class="excel-cell">${cell || ''}</div>
-                `).join('')}
-              </div>
-            `).join('')}
+            ${sheet.rows.map((row, rowIndex) => {
+              const cells: string[] = [];
+              for (let i = 0; i < maxCols; i++) {
+                cells.push(row[i] || '');
+              }
+              return `
+                <div class="excel-row">
+                  <div class="excel-row-header">${rowIndex + 1}</div>
+                  ${cells.map((cell) => `
+                    <div class="excel-cell">${cell}</div>
+                  `).join('')}
+                </div>
+              `;
+            }).join('')}
           </div>
         </div>
       </div>
