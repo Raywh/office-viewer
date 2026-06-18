@@ -88,7 +88,18 @@ export class ZipPackage {
     }
 
     for (const entry of Object.values(scanned)) {
+      // 调试日志
+      if (entry.name.includes('document.xml')) {
+        console.log('[ZipPackage] Found document.xml entry:', entry);
+      }
+
       const partData = this.extractPartData(view, entry);
+      
+      if (entry.name.includes('document.xml')) {
+        console.log('[ZipPackage] document.xml data length:', partData?.byteLength);
+        console.log('[ZipPackage] document.xml first 100 bytes:', new Uint8Array(partData!).slice(0, 100));
+      }
+
       if (partData) {
         const zipPart: ZipPart = {
           path: entry.name,
@@ -98,7 +109,16 @@ export class ZipPackage {
           },
           getXml(): Document {
             const parser = new DOMParser();
-            return parser.parseFromString(this.getText(), 'application/xml');
+            const text = this.getText();
+            const xml = parser.parseFromString(text, 'application/xml');
+            
+            // 检查是否有解析错误
+            const errorNode = xml.querySelector('parsererror');
+            if (errorNode) {
+              console.warn('[ZipPackage] XML parse error for', entry.name);
+              console.warn('[ZipPackage] Raw text:', text.slice(0, 500));
+            }
+            return xml;
           },
         };
         parts.set(entry.name, zipPart);
