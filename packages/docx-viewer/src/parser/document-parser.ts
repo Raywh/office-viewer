@@ -30,9 +30,16 @@ export class DocumentParser {
   private relationships: Map<string, string> = new Map();
   private options: ParseOptions;
 
+  // 构造函数现在需要一个已创建的 ZipPackage
   constructor(zipPackage: ZipPackage, options: ParseOptions = {}) {
     this.zipPackage = zipPackage;
     this.options = options;
+  }
+
+  // 静态工厂方法
+  static async create(data: ArrayBuffer, options: ParseOptions = {}): Promise<DocumentParser> {
+    const zipPackage = await ZipPackage.create(data);
+    return new DocumentParser(zipPackage, options);
   }
 
   async parse(): Promise<WordDocument> {

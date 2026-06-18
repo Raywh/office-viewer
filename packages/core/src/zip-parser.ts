@@ -28,13 +28,18 @@ export class ZipPackage {
   private relationships: Map<string, PackageRelationship[]> = new Map();
   private globalRelationships: PackageRelationship[] = [];
 
-  constructor(data: ArrayBuffer) {
-    this.parse(data);
+  // 工厂方法来创建异步的 ZipPackage 实例
+  static async create(data: ArrayBuffer): Promise<ZipPackage> {
+    const pkg = new ZipPackage();
+    await pkg.parse(data);
+    return pkg;
   }
 
-  private parse(data: ArrayBuffer): void {
+  private constructor() {}
+
+  private async parse(data: ArrayBuffer): Promise<void> {
     try {
-      const { parts, relationships, contentTypes } = this.basicZipParse(data);
+      const { parts, relationships, contentTypes } = await this.basicZipParse(data);
 
       this.parts = parts;
       this.contentTypes = contentTypes;
@@ -49,11 +54,11 @@ export class ZipPackage {
     }
   }
 
-  private basicZipParse(data: ArrayBuffer): {
+  private async basicZipParse(data: ArrayBuffer): Promise<{
     parts: Map<string, ZipPart>;
     contentTypes: Map<string, string>;
     relationships: Map<string, PackageRelationship[]>;
-  } {
+  }> {
     const parts = new Map<string, ZipPart>();
     const contentTypes = new Map<string, string>();
     const relationships = new Map<string, PackageRelationship[]>();
@@ -93,7 +98,7 @@ export class ZipPackage {
         console.log('[ZipPackage] Found document.xml entry:', entry);
       }
 
-      const partData = this.extractPartData(view, entry);
+      const partData = await this.extractPartData(view, entry);
       
       if (entry.name.includes('document.xml')) {
         console.log('[ZipPackage] document.xml data length:', partData?.byteLength);
@@ -168,10 +173,47 @@ export class ZipPackage {
     };
   }
 
-  private extractPartData(view: Uint8Array, entry: any): ArrayBuffer | null {
+  private async extractPartData(view: Uint8Array, entry: any): Promise<ArrayBuffer | null> {
+    console.log('[ZipPackage] extractPartData for', entry.name, 'compressionMethod:', entry.compressionMethod);
     if (entry.compressionMethod === 0) {
+      // 未压缩，直接返回
       return view.slice(entry.offset, entry.offset + entry.compressedSize).buffer;
+    } else if (entry.compressionMethod === 8) {
+      // DEFLATE 压缩，使用浏览器原生解压
+      console.log('[ZipPackage] Decompressing DEFLATE data for', entry.name);
+      const compressedData = view.slice(entry.offset, entry.offset + entry.compressedSize);
+      try {
+        const ds = new DecompressionStream('deflate-raw');
+        const writer = ds.writable.getWriter();
+        writer.write(compressedData);
+        writer.close();
+        
+        const reader = ds.readable.getReader();
+        const chunks: Uint8Array[] = [];
+        let result;
+        do {
+          result = await reader.read();
+          if (result.value) {
+            chunks.push(result.value);
+          }
+        } while (!result.done);
+        
+        // 合并所有 chunk
+        const totalLength = chunks.reduce((acc, c) => acc + c.length, 0);
+        const decompressed = new Uint8Array(totalLength);
+        let offset = 0;
+        for (const chunk of chunks) {
+          decompressed.set(chunk, offset);
+          offset += chunk.length;
+        }
+        console.log('[ZipPackage] Decompressed', compressedData.length, '→', decompressed.length, 'bytes for', entry.name);
+        return decompressed.buffer;
+      } catch (error) {
+        console.error('[ZipPackage] Decompression failed:', error);
+        return new ArrayBuffer(0);
+      }
     }
+    console.warn('[ZipPackage] Unsupported compression method:', entry.compressionMethod);
     return new ArrayBuffer(0);
   }
 

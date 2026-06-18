@@ -32,8 +32,7 @@ export async function parseAsync(
     buffer = data;
   }
 
-  const zipPackage = new ZipPackage(buffer);
-  const parser = new DocumentParser(zipPackage, options);
+  const parser = await DocumentParser.create(buffer, options);
   return await parser.parse();
 }
 
