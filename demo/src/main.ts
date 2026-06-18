@@ -15,7 +15,13 @@ const elements = {
   uploadBtn: document.getElementById('uploadBtn')!,
   preview: document.getElementById('preview')!,
   previewContainer: document.getElementById('previewContainer')!,
+  previewPlaceholder: document.getElementById('previewPlaceholder')!,
+  previewTitle: document.getElementById('previewTitle')!,
   diagnostics: document.getElementById('diagnostics')!,
+  fileInfo: document.getElementById('fileInfo')!,
+  fileName: document.getElementById('fileName')!,
+  fileFormat: document.getElementById('fileFormat')!,
+  fileSize: document.getElementById('fileSize')!,
 };
 
 async function loadViewerModule(format: string): Promise<any> {
@@ -84,6 +90,35 @@ function updateDiagnostics(message: string): void {
   elements.diagnostics.innerHTML = `<p>${message}</p>`;
 }
 
+function updateFileInfo(file: File, format: string): void {
+  elements.fileInfo.style.display = 'block';
+  elements.fileName.textContent = file.name;
+  elements.fileFormat.textContent = format.toUpperCase();
+  elements.fileSize.textContent = formatFileSize(file.size);
+}
+
+function formatFileSize(bytes: number): string {
+  if (bytes < 1024) return bytes + ' B';
+  else if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+  else return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+}
+
+function getFormatIcon(format: string): string {
+  switch (format) {
+    case 'docx':
+    case 'doc':
+      return '📄';
+    case 'xlsx':
+    case 'xls':
+      return '📊';
+    case 'pptx':
+    case 'ppt':
+      return '📽️';
+    default:
+      return '📄';
+  }
+}
+
 function initEventListeners(): void {
   elements.uploadBtn.addEventListener('click', () => {
     elements.fileInput.click();
@@ -120,7 +155,22 @@ async function handleFile(file: File): Promise<void> {
   state.currentFile = file;
   
   const arrayBuffer = await file.arrayBuffer();
-  const format = detectFormat(arrayBuffer);
+  let format = detectFormat(arrayBuffer);
+  
+  if (format === 'unknown') {
+    const ext = file.name.toLowerCase().split('.').pop();
+    if (ext) {
+      const extMap: Record<string, string> = {
+        'doc': 'doc',
+        'docx': 'docx',
+        'ppt': 'ppt',
+        'pptx': 'pptx',
+        'xls': 'xls',
+        'xlsx': 'xlsx',
+      };
+      format = extMap[ext] || 'unknown';
+    }
+  }
   
   if (format === 'unknown') {
     updateDiagnostics('无法识别的文件格式');
@@ -128,7 +178,12 @@ async function handleFile(file: File): Promise<void> {
   }
   
   state.currentFormat = format;
+  
+  updateFileInfo(file, format);
   updateDiagnostics(`Detected format: ${format}`);
+  elements.previewTitle.textContent = `${getFormatIcon(format)} 预览: ${file.name}`;
+  elements.previewPlaceholder.style.display = 'none';
+  elements.preview.style.display = 'block';
   
   await renderByFormat(format, arrayBuffer, elements.preview);
 }

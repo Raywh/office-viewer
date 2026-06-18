@@ -9,33 +9,79 @@
   <body>
     <div id="app">
       <header class="header">
-        <h1>Office Viewer</h1>
-        <p>TypeScript 纯前端 Office 渲染引擎</p>
+        <div class="header-content">
+          <h1>📄 Office Viewer</h1>
+          <p>TypeScript 纯前端渲染引擎 - Word / Excel / PowerPoint</p>
+        </div>
       </header>
 
-      <div class="container">
-        <div class="upload-area" id="uploadArea">
-          <input
-            type="file"
-            id="fileInput"
-            accept=".doc,.docx,.ppt,.pptx,.xls,.xlsx"
-            style="display: none"
-          />
-          <div class="upload-prompt">
-            <p>拖拽文件到这里或点击上传</p>
-            <button id="uploadBtn" class="upload-btn">选择文件</button>
+      <main class="main-container">
+        <aside class="sidebar">
+          <div class="upload-section">
+            <div class="upload-area" id="uploadArea">
+              <div class="upload-icon">📎</div>
+              <div class="upload-text">
+                <p class="upload-title">拖拽文件到这里</p>
+                <p class="upload-subtitle">或点击下方按钮上传</p>
+              </div>
+              <input
+                type="file"
+                id="fileInput"
+                accept=".doc,.docx,.ppt,.pptx,.xls,.xlsx"
+                style="display: none"
+              />
+              <button id="uploadBtn" class="upload-btn">
+                <span>选择文件</span>
+              </button>
+            </div>
+
+            <div class="file-info" id="fileInfo" style="display: none;">
+              <h3>📁 文件信息</h3>
+              <div class="info-item">
+                <span class="info-label">文件名:</span>
+                <span class="info-value" id="fileName">-</span>
+              </div>
+              <div class="info-item">
+                <span class="info-label">格式:</span>
+                <span class="info-value" id="fileFormat">-</span>
+              </div>
+              <div class="info-item">
+                <span class="info-label">大小:</span>
+                <span class="info-value" id="fileSize">-</span>
+              </div>
+            </div>
+
+            <div class="diagnostics-panel" id="diagnosticsPanel">
+              <h3>📊 诊断信息</h3>
+              <div class="diagnostics-content" id="diagnostics">
+                <p class="placeholder">等待上传...</p>
+              </div>
+            </div>
           </div>
-        </div>
 
-        <div class="preview-container" id="previewContainer">
-          <div id="preview"></div>
-        </div>
+          <div class="features-section">
+            <h3>✨ 支持的格式</h3>
+            <ul class="feature-list">
+              <li>📄 Word (.doc / .docx)</li>
+              <li>📊 Excel (.xls / .xlsx)</li>
+              <li>📽️ PowerPoint (.ppt / .pptx)</li>
+            </ul>
+          </div>
+        </aside>
 
-        <div class="diagnostics-panel" id="diagnosticsPanel">
-          <h3>诊断信息</h3>
-          <div id="diagnostics"></div>
-        </div>
-      </div>
+        <section class="preview-section">
+          <div class="preview-header">
+            <h2 id="previewTitle">📄 预览区域</h2>
+          </div>
+          <div class="preview-container" id="previewContainer">
+            <div class="preview-placeholder" id="previewPlaceholder">
+              <div class="placeholder-icon">📄</div>
+              <p>请上传 Office 文件以预览</p>
+            </div>
+            <div id="preview" class="preview-content"></div>
+          </div>
+        </section>
+      </main>
     </div>
 
     <script type="module" src="/src/main.ts"></script>
