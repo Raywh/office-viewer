@@ -38,14 +38,12 @@ export function detectFormat(
     return MIME_TYPE_MAP[options.mimeType];
   }
 
-  if (data instanceof Blob || data instanceof File) {
-    return new Promise(async (resolve) => {
-      const buffer = await data.slice(0, 32).arrayBuffer();
-      resolve(detectFromArrayBuffer(buffer));
-    }) as unknown as FileFormat;
+  if (data instanceof ArrayBuffer) {
+    return detectFromArrayBuffer(data);
   }
 
-  return detectFromArrayBuffer(data);
+  // For Blob/File, we can't read synchronously,  rely on filename first
+  return 'unknown';
 }
 
 function detectFromArrayBuffer(data: ArrayBuffer): FileFormat {

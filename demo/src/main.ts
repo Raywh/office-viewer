@@ -155,7 +155,7 @@ async function handleFile(file: File): Promise<void> {
   state.currentFile = file;
   
   const arrayBuffer = await file.arrayBuffer();
-  let format = detectFormat(arrayBuffer);
+  let format = detectFormat(arrayBuffer, { filename: file.name });
   
   if (format === 'unknown') {
     const ext = file.name.toLowerCase().split('.').pop();
