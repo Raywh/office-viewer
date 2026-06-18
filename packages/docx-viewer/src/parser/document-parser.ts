@@ -98,17 +98,25 @@ export class DocumentParser {
 
     const children = Array.from(body.children);
     console.log('[DocumentParser] Body children count:', children.length);
-    console.log('[DocumentParser] Body children:', children.map((c, i) => ({ index: i, localName: c.localName, tagName: c.tagName })));
+    console.log('[DocumentParser] Body children detailed:', children.map((c, i) => ({
+      index: i,
+      localName: c.localName,
+      tagName: c.tagName,
+      nodeName: c.nodeName,
+      innerHTML: c.innerHTML?.slice(0, 200)
+    })));
     let currentBlocks: Block[] = [];
     
     for (const child of children) {
-      if (child.localName === 'p') {
+      const name = child.localName.toLowerCase();
+      console.log('[DocumentParser] Processing child:', name, child.tagName);
+      if (name === 'p' || child.nodeName.toLowerCase().includes('p')) {
         const paragraph = this.parseParagraph(child);
         currentBlocks.push(paragraph);
-      } else if (child.localName === 'tbl') {
+      } else if (name === 'tbl' || child.nodeName.toLowerCase().includes('tbl')) {
         const table = this.parseTable(child);
         currentBlocks.push(table);
-      } else if (child.localName === 'sectPr') {
+      } else if (name.includes('sectpr')) {
         sections.push({
           id: `section-${sections.length}`,
           properties: this.parseSectionProperties(child),
