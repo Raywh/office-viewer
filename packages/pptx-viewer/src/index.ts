@@ -20,7 +20,7 @@ export async function parsePptx(
   let slides: Array<{ id: string; text: string; images?: any[] }> = [];
   
   try {
-    const zipPackage = new ZipPackage(data);
+    const zipPackage = await ZipPackage.create(data);
     
     const parts = zipPackage.listAllParts?.() || [];
     const slideParts = parts.filter((p: string) => /slide\d+\.xml/.test(p));
