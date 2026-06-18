@@ -6,7 +6,14 @@ import { ExcelRenderer, RenderOptions } from './renderer/excel-renderer';
 export { Workbook };
 export { ParseOptions, RenderOptions };
 
-export function parseExcelWorkbook(data: ArrayBuffer, options?: ParseOptions): Workbook {
+export async function parseExcelWorkbook(data: ArrayBuffer, options?: ParseOptions): Promise<Workbook> {
+  const zipPackage = new ZipPackage(data);
+  const parser = new ExcelParser(zipPackage, options);
+  
+  return await parser.parse();
+}
+
+export function parseExcelWorkbookSync(data: ArrayBuffer, options?: ParseOptions): Workbook {
   const zipPackage = new ZipPackage(data);
   const parser = new ExcelParser(zipPackage, options);
   

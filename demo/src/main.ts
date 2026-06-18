@@ -69,7 +69,7 @@ async function renderByFormat(
       const rendered = module.renderMsDoc(parsed);
       module.mountMsDoc(container, rendered);
     } else if ((format === 'xlsx' || format === 'xls') && module.mountExcel) {
-      const workbook = module.parseExcelWorkbook(data);
+      const workbook = await module.parseExcelWorkbook(data);
       module.mountExcel(container, workbook);
     } else if (format === 'pptx' && module.renderPresentationToElement) {
       const parsed = await module.parsePptx(data);
