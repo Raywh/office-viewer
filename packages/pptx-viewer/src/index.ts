@@ -13,10 +13,10 @@ export interface ParsedPptx {
   }>;
 }
 
-export function parsePptx(
+export async function parsePptx(
   data: ArrayBuffer,
   options?: PptxOptions
-): ParsedPptx {
+): Promise<ParsedPptx> {
   let slides: Array<{ id: string; text: string; images?: any[] }> = [];
   
   try {
