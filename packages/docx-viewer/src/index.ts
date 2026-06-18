@@ -1,8 +1,33 @@
+// 直接从源文件导入和导出，避免多级导入问题
 import { ZipPackage } from '@office-viewer/core';
 import { WordDocument } from './model/document';
-import { parseAsync, ParseOptions } from './parser/index';
+import { DocumentParser } from './parser/document-parser';
 
-export { parseAsync, ParseOptions };
+export interface ParseOptions {
+  includeStyles?: boolean;
+  includeComments?: boolean;
+  includeHeadersFooters?: boolean;
+  maxImages?: number;
+}
+
+export async function parseAsync(
+  data: ArrayBuffer | Blob | File,
+  options?: ParseOptions
+): Promise<WordDocument> {
+  let buffer: ArrayBuffer;
+
+  if (data instanceof Blob || data instanceof File) {
+    buffer = await data.arrayBuffer();
+  } else {
+    buffer = data;
+  }
+
+  const zipPackage = new ZipPackage(buffer);
+  const parser = new DocumentParser(zipPackage, options);
+
+  return await parser.parse();
+}
+
 export { WordDocument };
 export * from './model/document';
 
