@@ -1,13 +1,23 @@
-// 直接从源文件导入和导出，避免多级导入问题
 import { ZipPackage } from '@office-viewer/core';
-import { WordDocument } from './model/document';
 import { DocumentParser } from './parser/document-parser';
 
+// 直接复制接口定义，避免导入问题
 export interface ParseOptions {
   includeStyles?: boolean;
   includeComments?: boolean;
   includeHeadersFooters?: boolean;
   maxImages?: number;
+}
+
+export interface WordDocument {
+  title?: string;
+  author?: string;
+  subject?: string;
+  keywords?: string[];
+  created?: Date;
+  modified?: Date;
+  sections: any[];
+  relationships: Map<string, any>;
 }
 
 export async function parseAsync(
@@ -24,12 +34,8 @@ export async function parseAsync(
 
   const zipPackage = new ZipPackage(buffer);
   const parser = new DocumentParser(zipPackage, options);
-
   return await parser.parse();
 }
-
-export { WordDocument };
-export * from './model/document';
 
 export async function renderAsync(
   data: ArrayBuffer | Blob | File,
