@@ -27,6 +27,7 @@ export class ZipPackage {
   private contentTypes: Map<string, string> = new Map();
   private relationships: Map<string, PackageRelationship[]> = new Map();
   private globalRelationships: PackageRelationship[] = [];
+  private allPartNames: string[] = [];
 
   // 工厂方法来创建异步的 ZipPackage 实例
   static async create(data: ArrayBuffer): Promise<ZipPackage> {
@@ -62,6 +63,7 @@ export class ZipPackage {
     const parts = new Map<string, ZipPart>();
     const contentTypes = new Map<string, string>();
     const relationships = new Map<string, PackageRelationship[]>();
+    const partNames: string[] = [];
 
     const view = new Uint8Array(data);
     const textDecoder = new TextDecoder('utf-8', { fatal: false });
@@ -75,6 +77,7 @@ export class ZipPackage {
           const result = this.readLocalFileHeader(view, offset);
           if (result) {
             scanned[result.name] = result;
+            partNames.push(result.name);
             offset = result.nextOffset;
             continue;
           }
@@ -94,15 +97,14 @@ export class ZipPackage {
 
     for (const entry of Object.values(scanned)) {
       // 调试日志
-      if (entry.name.includes('document.xml')) {
-        console.log('[ZipPackage] Found document.xml entry:', entry);
+      if (entry.name.includes('document.xml') || entry.name.includes('slide')) {
+        console.log('[ZipPackage] Found entry:', entry.name);
       }
 
       const partData = await this.extractPartData(view, entry);
       
       if (entry.name.includes('document.xml')) {
         console.log('[ZipPackage] document.xml data length:', partData?.byteLength);
-        console.log('[ZipPackage] document.xml first 100 bytes:', new Uint8Array(partData!).slice(0, 100));
       }
 
       if (partData) {
@@ -121,7 +123,6 @@ export class ZipPackage {
             const errorNode = xml.querySelector('parsererror');
             if (errorNode) {
               console.warn('[ZipPackage] XML parse error for', entry.name);
-              console.warn('[ZipPackage] Raw text:', text.slice(0, 500));
             }
             return xml;
           },
@@ -133,6 +134,8 @@ export class ZipPackage {
         }
       }
     }
+    
+    this.allPartNames = partNames;
 
     for (const [name, part] of parts.entries()) {
       if (name.endsWith('.rels')) {

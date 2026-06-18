@@ -8,8 +8,8 @@ export interface PptxOptions {
 export interface ParsedPptx {
   slides: Array<{
     id: string;
-    text: string;
-    images?: Array<{ id: string; data?: string }>;
+    title: string;
+    content: string[];
   }>;
 }
 
@@ -17,47 +17,74 @@ export async function parsePptx(
   data: ArrayBuffer,
   options?: PptxOptions
 ): Promise<ParsedPptx> {
-  let slides: Array<{ id: string; text: string; images?: any[] }> = [];
+  const slides: Array<{ id: string; title: string; content: string[] }> = [];
   
   try {
     const zipPackage = await ZipPackage.create(data);
     
-    const parts = zipPackage.listAllParts?.() || [];
-    const slideParts = parts.filter((p: string) => /slide\d+\.xml/.test(p));
+    // First read the presentation to get slide count/order
+    const presentationPart = zipPackage.getPart('ppt/presentation.xml');
+    let slideCount = 0;
+    if (presentationPart) {
+      const xml = presentationPart.getXml();
+      const sldIdLst = xml.querySelector('sldIdLst');
+      if (sldIdLst) {
+        slideCount = sldIdLst.querySelectorAll('sldId').length;
+      }
+    }
     
-    if (slideParts.length > 0) {
-      for (let i = 0; i < slideParts.length; i++) {
+    // If we can't get from presentation, scan for slide files
+    if (slideCount === 0) {
+      // Let's find all slide files
+      const parts = zipPackage.listAllParts ? zipPackage.listAllParts() : [];
+      const slideParts = (parts as string[]).filter((p: string) => /ppt\/slides\/slide\d+\.xml/.test(p));
+      slideCount = slideParts.length;
+    }
+    
+    // Now read each slide
+    for (let i = 1; i <= slideCount; i++) {
+      const slidePart = zipPackage.getPart(`ppt/slides/slide${i}.xml`);
+      if (slidePart) {
+        const slideXml = slidePart.getXml();
+        
+        const title: string[] = [];
+        const content: string[] = [];
+        
+        // Extract all text from <a:t> elements
+        const textNodes = slideXml.querySelectorAll('t');
+        textNodes.forEach((node) => {
+          const text = node.textContent?.trim();
+          if (text && text.length > 0) {
+            if (title.length === 0) {
+              title.push(text);
+            } else {
+              content.push(text);
+            }
+          }
+        });
+        
         slides.push({
-          id: `slide-${i + 1}`,
-          text: `第 ${i + 1} 页（pptx 文件解析中）`,
+          id: `slide-${i}`,
+          title: title.length > 0 ? title.join(' ') : `第 ${i} 页`,
+          content: content,
         });
       }
     }
     
+    // Fallback if no slides parsed
     if (slides.length === 0) {
-      const view = new Uint8Array(data);
-      const textDecoder = new TextDecoder('utf-8', { fatal: false });
-      const scanText = textDecoder.decode(view.slice(0, Math.min(view.length, 65536)));
-      
-      let allText = '';
-      const lines = scanText.split(/\r?\n/);
-      for (const line of lines) {
-        const cleanLine = line.replace(/\0/g, '').trim();
-        if (cleanLine.length > 2) {
-          allText += cleanLine + ' ';
-        }
-      }
-      
       slides.push({
         id: 'slide-1',
-        text: allText || '第 1 页',
+        title: '第 1 页',
+        content: ['演示文稿内容'],
       });
     }
   } catch (error) {
     console.error('Error parsing .pptx file:', error);
     slides.push({
       id: 'slide-1',
-      text: '（不支持的 .pptx 文件）',
+      title: '解析失败',
+      content: [`错误: ${error}`],
     });
   }
   
@@ -68,18 +95,19 @@ export function renderPresentationToHtml(
   presentation: ParsedPptx
 ): string {
   return `
-    <div class="pptx-viewer">
-      <h2 style="margin-bottom: 24px;">📽️ .pptx 查看</h2>
-      <div style="padding: 24px; border: 1px dashed #e2e8f0; border-radius: 8px; background: #f8fafc; margin-bottom: 24px;">
-        <p style="color: #64748b;">
-          .pptx 解析器正在开发中。以下是简单预览：
-        </p>
-      </div>
+    <div class="pptx-viewer" style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; padding: 24px;">
+      <h2 style="margin-bottom: 24px; color: #1e293b;">📽️ PowerPoint 预览</h2>
       <div style="display: flex; flex-direction: column; gap: 24px;">
         ${presentation.slides.map((slide, index) => `
-          <div style="padding: 32px; border: 1px solid #e2e8f0; border-radius: 12px; background: white;">
-            <h3 style="margin-bottom: 16px; color: #64748b;">第 ${index + 1} 页</h3>
-            <p style="color: #1e293b;">${slide.text}</p>
+          <div style="padding: 32px; border: 1px solid #e2e8f0; border-radius: 12px; background: white; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1);">
+            <h3 style="margin-bottom: 16px; color: #3b82f6; font-size: 1.5rem; font-weight: 700;">第 ${index + 1} 页: ${slide.title}</h3>
+            ${slide.content.length > 0 ? `
+              <ul style="list-style-type: disc; padding-left: 24px; color: #475569; line-height: 1.8;">
+                ${slide.content.map((text) => `<li style="margin-bottom: 8px;">${text}</li>`).join('')}
+              </ul>
+            ` : `
+              <p style="color: #94a3b8; font-style: italic;">（此页无文本内容）</p>
+            `}
           </div>
         `).join('')}
       </div>
@@ -91,7 +119,7 @@ export function renderSlideToHtml(
   slide: any,
   presentation: ParsedPptx
 ): string {
-  return `<div style="padding: 32px;">${slide.text}</div>`;
+  return `<div style="padding: 32px;">${slide.title || 'Slide'}</div>`;
 }
 
 export function renderPresentationToElement(

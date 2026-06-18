@@ -1,161 +1,141 @@
 import { ZipPackage } from '@office-viewer/core';
-import { DocumentParser } from './parser/document-parser';
-
-// 直接复制接口定义，避免导入问题
-export interface ParseOptions {
-  includeStyles?: boolean;
-  includeComments?: boolean;
-  includeHeadersFooters?: boolean;
-  maxImages?: number;
-}
 
 export interface WordDocument {
-  title?: string;
-  author?: string;
-  subject?: string;
-  keywords?: string[];
-  created?: Date;
-  modified?: Date;
-  sections: any[];
+  sections: Array<{
+    id: string;
+    properties: any;
+    paragraphs: Array<{
+      id: string;
+      properties: any;
+      text: string;
+    }>;
+  }>;
   relationships: Map<string, any>;
 }
 
-export async function parseAsync(
-  data: ArrayBuffer | Blob | File,
-  options?: ParseOptions
+export async function parseDocument(
+  data: ArrayBuffer
 ): Promise<WordDocument> {
-  let buffer: ArrayBuffer;
+  const zipPackage = await ZipPackage.create(data);
+  const documentPart = zipPackage.getPart('word/document.xml');
 
+  if (!documentPart) {
+    console.error('[DocxParser] No document.xml found');
+    return {
+      sections: [],
+      relationships: new Map(),
+    };
+  }
+
+  const docXml = documentPart.getXml();
+
+  // Parse body
+  const body = docXml.querySelector('body');
+  const paragraphs: Array<{ id: string; properties: any; text: string }> = [];
+
+  if (body) {
+    const bodyChildren = Array.from(body.children);
+    console.log('[DocxParser] Body children count:', bodyChildren.length);
+
+    for (let i = 0; i < bodyChildren.length; i++) {
+      const child = bodyChildren[i];
+      
+      // Check if it's a paragraph (p) in any namespace
+      if (child.nodeName.toLowerCase().includes('p') || 
+          child.tagName?.toLowerCase().includes('p')) {
+        
+        // Extract all text from t elements
+        const textNodes = child.querySelectorAll('t');
+        const textParts: string[] = [];
+        
+        textNodes.forEach(node => {
+          const t = node.textContent?.trim();
+          if (t) {
+            textParts.push(t);
+          }
+        });
+
+        // Join into a single paragraph
+        if (textParts.length > 0 || child.textContent?.trim()) {
+          const text = textParts.length > 0 
+            ? textParts.join(' ') 
+            : child.textContent?.trim() || '';
+          
+          if (text.length > 0) {
+            paragraphs.push({
+              id: `p-${i}`,
+              properties: {},
+              text,
+            });
+          }
+        }
+      }
+    }
+  }
+
+  console.log('[DocxParser] Parsed paragraphs:', paragraphs);
+
+  return {
+    sections: [{
+      id: 'section-0',
+      properties: {},
+      paragraphs,
+    }],
+    relationships: new Map(),
+  };
+}
+
+export function renderDocumentToHtml(doc: WordDocument): string {
+  if (!doc.sections.length) {
+    return `
+      <div class="doc-error" style="padding: 24px; text-align: center; color: #ef4444;">
+        文档解析失败或为空
+      </div>
+    `;
+  }
+
+  const section = doc.sections[0];
+
+  return `
+    <div class="docx-viewer" style="
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      padding: 32px;
+      background: white;
+      min-height: 100%;
+      line-height: 1.8;
+    ">
+      <div class="doc-content" style="max-width: 800px; margin: 0 auto;">
+        ${section.paragraphs.map(p => `
+          <p style="
+            margin: 16px 0;
+            font-size: 1rem;
+            color: #1e293b;
+          ">${p.text}</p>
+        `).join('')}
+      </div>
+    </div>
+  `;
+}
+
+export async function renderAsync(
+  data: ArrayBuffer | Blob | File,
+  container: HTMLElement,
+  _styleContainer?: HTMLElement,
+  _options?: any
+): Promise<void> {
+  console.log('[DocxViewer] renderAsync called');
+  
+  let buffer: ArrayBuffer;
   if (data instanceof Blob || data instanceof File) {
     buffer = await data.arrayBuffer();
   } else {
     buffer = data;
   }
 
-  const parser = await DocumentParser.create(buffer, options);
-  return await parser.parse();
+  const doc = await parseDocument(buffer);
+  
+  container.innerHTML = renderDocumentToHtml(doc);
 }
 
-export async function renderAsync(
-  data: ArrayBuffer | Blob | File,
-  container: HTMLElement,
-  styleContainer?: HTMLElement,
-  options?: ParseOptions
-): Promise<void> {
-  console.log('[DocxViewer] renderAsync called');
-  const doc = await parseAsync(data, options);
-  console.log('[DocxViewer] Parsed doc:', doc);
-  await renderDocument(doc, container, styleContainer);
-}
-
-export async function renderDocument(
-  doc: WordDocument,
-  container: HTMLElement,
-  styleContainer?: HTMLElement
-): Promise<void> {
-  container.innerHTML = '';
-
-  const docContainer = document.createElement('div');
-  docContainer.className = 'docx-viewer';
-
-  for (const section of doc.sections) {
-    const sectionEl = document.createElement('div');
-    sectionEl.className = 'docx-section';
-
-    for (const child of section.children) {
-      if (child.type === 'paragraph') {
-        sectionEl.appendChild(renderParagraph(child));
-      } else if (child.type === 'table') {
-        sectionEl.appendChild(renderTable(child));
-      }
-    }
-
-    docContainer.appendChild(sectionEl);
-  }
-
-  container.appendChild(docContainer);
-}
-
-function renderParagraph(paragraph: any): HTMLElement {
-  const p = document.createElement('p');
-  p.className = 'docx-paragraph';
-
-  for (const run of paragraph.children) {
-    if (run.type === 'run') {
-      p.appendChild(renderRun(run));
-    }
-  }
-
-  return p;
-}
-
-function renderRun(run: any): HTMLElement {
-  const span = document.createElement('span');
-  span.className = 'docx-run';
-
-  applyRunStyles(span, run.properties);
-
-  for (const text of run.children) {
-    if (text.type === 'text') {
-      span.appendChild(document.createTextNode(text.content));
-    }
-  }
-
-  return span;
-}
-
-function applyRunStyles(element: HTMLElement, props: any): void {
-  if (props.bold) {
-    element.style.fontWeight = 'bold';
-  }
-  if (props.italic) {
-    element.style.fontStyle = 'italic';
-  }
-  if (props.strike) {
-    element.style.textDecoration = 'line-through';
-  }
-  if (props.underline) {
-    element.style.textDecoration = 'underline';
-  }
-  if (props.size) {
-    element.style.fontSize = `${props.size / 2}pt`;
-  }
-  if (props.color) {
-    element.style.color = `#${props.color}`;
-  }
-}
-
-function renderTable(table: any): HTMLElement {
-  const tableEl = document.createElement('table');
-  tableEl.className = 'docx-table';
-
-  for (const row of table.rows) {
-    tableEl.appendChild(renderTableRow(row));
-  }
-
-  return tableEl;
-}
-
-function renderTableRow(row: any): HTMLElement {
-  const tr = document.createElement('tr');
-  tr.className = 'docx-table-row';
-
-  for (const cell of row.cells) {
-    tr.appendChild(renderTableCell(cell));
-  }
-
-  return tr;
-}
-
-function renderTableCell(cell: any): HTMLElement {
-  const td = document.createElement('td');
-  td.className = 'docx-table-cell';
-
-  for (const block of cell.children) {
-    if (block.type === 'paragraph') {
-      td.appendChild(renderParagraph(block));
-    }
-  }
-
-  return td;
-}
+// 兼容以前的直接导入方式
+export { parseDocument as parse };
