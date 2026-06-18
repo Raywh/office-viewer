@@ -36,16 +36,20 @@ export class DocumentParser {
   }
 
   async parse(): Promise<WordDocument> {
+    console.log('[DocumentParser] Starting to parse...');
     const documentPart = this.zipPackage.getPart('word/document.xml');
     
     if (!documentPart) {
+      console.warn('[DocumentParser] word/document.xml not found!');
       return {
         sections: [],
         relationships: new Map()
       };
     }
 
+    console.log('[DocumentParser] Found document.xml, parsing...');
     this.documentXml = this.parseXml(documentPart.getText());
+    console.log('[DocumentParser] Document XML parsed:', this.documentXml);
     this.loadRelationships();
     
     const sections = this.parseBody();

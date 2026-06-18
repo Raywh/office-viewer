@@ -235,18 +235,31 @@ export class ZipPackage {
   }
 
   getPart(path: string): ZipPart | null {
+    // 调试信息：列出所有可用的部分
+    console.log('[ZipPackage] Looking for part:', path);
+    console.log('[ZipPackage] Available parts:', Array.from(this.parts.keys()));
+
+    // 尝试精确匹配
     if (this.parts.has(path)) {
+      console.log('[ZipPackage] Exact match found:', path);
       return this.parts.get(path)!;
     }
 
-    if (!path.startsWith('/')) {
-      return this.parts.get(`/${path}`) || null;
+    // 尝试不带前导斜杠
+    const pathWithoutSlash = path.startsWith('/') ? path.slice(1) : path;
+    if (this.parts.has(pathWithoutSlash)) {
+      console.log('[ZipPackage] Found without leading slash:', pathWithoutSlash);
+      return this.parts.get(pathWithoutSlash)!;
     }
 
-    if (path.startsWith('/')) {
-      return this.parts.get(path.slice(1)) || null;
+    // 尝试带前导斜杠
+    const pathWithSlash = !path.startsWith('/') ? '/' + path : path;
+    if (this.parts.has(pathWithSlash)) {
+      console.log('[ZipPackage] Found with leading slash:', pathWithSlash);
+      return this.parts.get(pathWithSlash)!;
     }
 
+    console.log('[ZipPackage] Part not found:', path);
     return null;
   }
 
