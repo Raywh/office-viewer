@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Office Viewer - TypeScript 纯前端渲染引擎</title>
+    <link rel="stylesheet" href="/src/style.css" />
+  </head>
+  <body>
+    <div id="app">
+      <header class="header">
+        <h1>Office Viewer</h1>
+        <p>TypeScript 纯前端 Office 渲染引擎</p>
+      </header>
+
+      <div class="container">
+        <div class="upload-area" id="uploadArea">
+          <input
+            type="file"
+            id="fileInput"
+            accept=".doc,.docx,.ppt,.pptx,.xls,.xlsx"
+            style="display: none"
+          />
+          <div class="upload-prompt">
+            <p>拖拽文件到这里或点击上传</p>
+            <button id="uploadBtn" class="upload-btn">选择文件</button>
+          </div>
+        </div>
+
+        <div class="preview-container" id="previewContainer">
+          <div id="preview"></div>
+        </div>
+
+        <div class="diagnostics-panel" id="diagnosticsPanel">
+          <h3>诊断信息</h3>
+          <div id="diagnostics"></div>
+        </div>
+      </div>
+    </div>
+
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

@@ -1,0 +1,35 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "moduleResolution": "bundler",
+    "esModuleInterop": true,
+    "allowSyntheticDefaultImports": true,
+    "strict": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noFallthroughCasesInSwitch": true,
+    "skipLibCheck": true,
+    "declaration": true,
+    "declarationMap": true,
+    "sourceMap": true,
+    "baseUrl": ".",
+    "paths": {
+      "@office-viewer/core": ["./packages/core/src/index.ts"],
+      "@office-viewer/msdoc-viewer": ["./packages/msdoc-viewer/src/index.ts"],
+      "@office-viewer/docx-viewer": ["./packages/docx-viewer/src/index.ts"],
+      "@office-viewer/ppt-viewer": ["./packages/ppt-viewer/src/index.ts"],
+      "@office-viewer/pptx-viewer": ["./packages/pptx-viewer/src/index.ts"],
+      "@office-viewer/excel-viewer": ["./packages/excel-viewer/src/index.ts"]
+    },
+    "outDir": "./dist"
+  },
+  "include": [
+    "packages/*/src/**/*.ts",
+    "packages/*/tests/**/*.ts",
+    "demo/src/**/*.ts",
+    "tests/**/*.ts"
+  ],
+  "exclude": ["node_modules", "dist", "**/*.spec.ts", "**/*.test.ts"]
+}

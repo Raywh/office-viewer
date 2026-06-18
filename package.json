@@ -1,0 +1,42 @@
+{
+  "name": "office-viewer",
+  "version": "0.1.0",
+  "description": "TypeScript 纯前端 Office 渲染引擎 - 支持 DOC/DOCX/PPT/PPTX/XLS/XLSX",
+  "type": "module",
+  "packageManager": "pnpm@8.15.0",
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "scripts": {
+    "dev": "pnpm -F demo dev",
+    "build": "pnpm -r build",
+    "test": "vitest",
+    "test:run": "vitest run",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "format": "prettier --write .",
+    "typecheck": "pnpm -r typecheck"
+  },
+  "keywords": [
+    "office",
+    "word",
+    "excel",
+    "powerpoint",
+    "viewer",
+    "renderer",
+    "typescript",
+    "frontend"
+  ],
+  "author": "Office Viewer Dev Team",
+  "license": "MIT",
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "@typescript-eslint/eslint-plugin": "^7.0.0",
+    "@typescript-eslint/parser": "^7.0.0",
+    "eslint": "^8.56.0",
+    "eslint-config-prettier": "^9.1.0",
+    "prettier": "^3.2.0",
+    "typescript": "^5.3.0",
+    "vitest": "^1.2.0"
+  }
+}
