@@ -1,6 +1,10 @@
-import { ZipPackage } from '@office-viewer/core';
+import {
+  ZipPackage,
+  getFirstByLocalName,
+  getAllByLocalName,
+  getChildrenByLocalName,
+} from '@office-viewer/core';
 
-// 直接定义接口
 export interface ParseOptions {
   includeStyles?: boolean;
   includeComments?: boolean;
@@ -18,277 +22,235 @@ export interface Workbook {
   definedNames: Map<string, any>;
 }
 
-// 简单的 Excel 解析
-async function parseWorkbook(data: ArrayBuffer, options?: ParseOptions): Promise<Workbook> {
+async function parseWorkbook(data: ArrayBuffer): Promise<Workbook> {
   const zipPackage = await ZipPackage.create(data);
-  
   const workbook: Workbook = {
     sheets: [],
-    definedNames: new Map()
+    definedNames: new Map(),
   };
 
-  // 读取 sharedStrings.xml（如果有）
+  // Parse shared strings
   const sharedStrings: string[] = [];
   const sharedStringsPart = zipPackage.getPart('xl/sharedStrings.xml');
   if (sharedStringsPart) {
     const xml = sharedStringsPart.getXml();
-    const siNodes = xml.querySelectorAll('si');
+    const siNodes = getAllByLocalName(xml, 'si');
     for (const siNode of siNodes) {
-      const tNode = siNode.querySelector('t');
-      if (tNode) {
-        sharedStrings.push(tNode.textContent || '');
+      const tChildren = getAllByLocalName(siNode, 't');
+      if (tChildren.length > 0) {
+        sharedStrings.push(tChildren.map(n => n.textContent || '').join(''));
+      } else {
+        const rChildren = getAllByLocalName(siNode, 'r');
+        if (rChildren.length > 0) {
+          const parts: string[] = [];
+          for (const rNode of rChildren) {
+            const tNode = getFirstByLocalName(rNode, 't');
+            if (tNode) parts.push(tNode.textContent || '');
+          }
+          sharedStrings.push(parts.join(''));
+        } else {
+          sharedStrings.push(siNode.textContent || '');
+        }
       }
     }
   }
 
-  // 尝试读取 workbook.xml 获取 sheet 列表
+  // Get sheet list
   const workbookPart = zipPackage.getPart('xl/workbook.xml');
   if (workbookPart) {
     const xml = workbookPart.getXml();
-    const sheetNodes = xml.querySelectorAll('sheet');
+    const sheetsParent = getFirstByLocalName(xml, 'sheets');
+    const sheetNodes = sheetsParent
+      ? getChildrenByLocalName(sheetsParent, 'sheet')
+      : getAllByLocalName(xml, 'sheet');
+
     for (let i = 0; i < sheetNodes.length; i++) {
       const sheetNode = sheetNodes[i];
       const name = sheetNode.getAttribute('name') || `Sheet${i + 1}`;
-      
-      // 读取对应的 sheet xml
-      const sheetPart = zipPackage.getPart(`xl/worksheets/sheet${i + 1}.xml`);
-      const rows: string[][] = [];
-      
-      if (sheetPart) {
-        const sheetXml = sheetPart.getXml();
-        const rowNodes = sheetXml.querySelectorAll('row');
-        
-        for (const rowNode of rowNodes) {
-          const cells: string[] = [];
-          const cellNodes = rowNode.querySelectorAll('c');
-          
-          for (const cellNode of cellNodes) {
-            const t = cellNode.getAttribute('t');
-            const vNode = cellNode.querySelector('v');
-            let value = '';
-            
-            if (vNode) {
-              const v = vNode.textContent || '';
-              if (t === 's') {
-                // shared string
-                const index = parseInt(v, 10);
-                if (!isNaN(index) && index < sharedStrings.length) {
-                  value = sharedStrings[index];
-                }
-              } else {
-                value = v;
-              }
+
+      // Try to locate worksheet XML via relationship or by predictable path
+      let sheetPart = null;
+      const rId = sheetNode.getAttribute('r:id') ||
+                   sheetNode.getAttribute('rId') ||
+                   sheetNode.getAttribute('id');
+      if (rId) {
+        const relsPart = zipPackage.getPart('xl/_rels/workbook.xml.rels');
+        if (relsPart) {
+          const relsXml = relsPart.getXml();
+          const relNodes = getAllByLocalName(relsXml, 'Relationship');
+          for (const relNode of relNodes) {
+            if (relNode.getAttribute('Id') === rId) {
+              const target = relNode.getAttribute('Target') || '';
+              const fullPath = target.startsWith('/')
+                ? target.slice(1)
+                : `xl/${target}`;
+              sheetPart = zipPackage.getPart(fullPath);
+              break;
             }
-            cells.push(value);
           }
-          rows.push(cells);
         }
       }
-      
-      workbook.sheets.push({
-        name,
-        rows
-      });
-    }
-  }
+      if (!sheetPart) {
+        sheetPart = zipPackage.getPart(`xl/worksheets/sheet${i + 1}.xml`);
+      }
 
-  // 如果没有找到 sheet，添加默认的
-  if (workbook.sheets.length === 0) {
-    workbook.sheets.push({
-      name: 'Sheet1',
-      rows: [
-        ['Hello', 'Excel', 'Viewer'],
-        ['This', 'is', 'a', 'test']
-      ]
-    });
+      const rows: string[][] = [];
+      if (sheetPart) {
+        const sheetXml = sheetPart.getXml();
+        const sheetData = getFirstByLocalName(sheetXml, 'sheetData');
+        if (sheetData) {
+          const rowNodes = getChildrenByLocalName(sheetData, 'row');
+          for (const rowNode of rowNodes) {
+            const cells: string[] = [];
+            const cellNodes = getChildrenByLocalName(rowNode, 'c');
+            for (const cellNode of cellNodes) {
+              const t = cellNode.getAttribute('t');
+              const vNode = getFirstByLocalName(cellNode, 'v');
+              const isNode = getFirstByLocalName(cellNode, 'is');
+              let value = '';
+              if (isNode) {
+                const tNodes = getAllByLocalName(isNode, 't');
+                value = tNodes.map(n => n.textContent || '').join('');
+              } else if (vNode) {
+                const v = vNode.textContent || '';
+                if (t === 's') {
+                  const idx = parseInt(v, 10);
+                  if (!isNaN(idx) && idx >= 0 && idx < sharedStrings.length) {
+                    value = sharedStrings[idx];
+                  } else {
+                    value = v;
+                  }
+                } else if (t === 'str' || t === 'n' || t === 'b' || !t) {
+                  value = v;
+                } else if (t === 'inlineStr') {
+                  value = v;
+                } else {
+                  value = v;
+                }
+              }
+              cells.push(value);
+            }
+            if (cells.some(c => c && c.length > 0) || cells.length > 0) {
+              rows.push(cells);
+            }
+          }
+        }
+      }
+
+      workbook.sheets.push({ name, rows });
+    }
   }
 
   return workbook;
 }
 
-export async function parseExcelWorkbook(data: ArrayBuffer, options?: ParseOptions): Promise<Workbook> {
-  return await parseWorkbook(data, options);
+export async function parseExcelWorkbook(data: ArrayBuffer): Promise<Workbook> {
+  return await parseWorkbook(data);
 }
 
-export function parseExcelWorkbookSync(data: ArrayBuffer, options?: ParseOptions): Workbook {
-  return {
-    sheets: [{ name: 'Sheet1', rows: [] }],
-    definedNames: new Map()
-  };
-}
-
-export function mountExcel(container: HTMLElement, workbook: Workbook, options?: RenderOptions): void {
+export function mountExcel(container: HTMLElement, workbook: Workbook): void {
   container.innerHTML = '';
 
-  if (workbook.sheets.length === 0) {
-    container.innerHTML = '<div style="padding: 20px;">No sheets found</div>';
+  if (!workbook.sheets.length) {
+    container.innerHTML = '<div style="padding: 20px;">未找到工作表</div>';
     return;
   }
 
-  // 渲染第一个 sheet
-  const sheet = workbook.sheets[0];
-  
-  // 计算最大列数
-  let maxCols = 10;
-  for (const row of sheet.rows) {
-    if (row.length > maxCols) {
-      maxCols = row.length;
+  const tabsContainer = document.createElement('div');
+  tabsContainer.className = 'excel-sheet-tabs';
+  tabsContainer.style.cssText = 'display: flex; border-bottom: 1px solid #cbd5e1; background: #f1f5f9; margin-top: 0; padding-top: 8px; padding-left: 8px;';
+
+  const sheetContainer = document.createElement('div');
+  sheetContainer.className = 'excel-sheet-container';
+  sheetContainer.style.cssText = 'background: white; padding: 16px; overflow: auto;';
+
+  workbook.sheets.forEach((sheet, i) => {
+    const tab = document.createElement('button');
+    tab.textContent = sheet.name;
+    tab.style.cssText = 'padding: 6px 16px; background: white; border: 1px solid #cbd5e1; border-bottom: none; margin-right: 4px; cursor: pointer; font-size: 13px; border-radius: 4px 4px 0 0;';
+    if (i === 0) {
+      tab.style.background = 'white';
+      tab.style.fontWeight = '600';
+    } else {
+      tab.style.background = '#e2e8f0';
     }
-  }
-  
-  const html = `
-    <div class="excel-viewer">
-      <div class="excel-sheet-tabs">
-        ${workbook.sheets.map((s, i) => `
-          <div class="excel-sheet-tab ${i === 0 ? 'active' : ''}" data-index="${i}">${s.name}</div>
-        `).join('')}
-      </div>
-      <div class="excel-sheet-container">
-        <div class="excel-grid-container">
-          <div class="excel-header-row">
-            <div class="excel-corner"></div>
-            ${Array.from({ length: maxCols }, (_, i) => {
-              let colName = '';
-              let n = i;
-              while (true) {
-                colName = String.fromCharCode(65 + (n % 26)) + colName;
-                n = Math.floor(n / 26) - 1;
-                if (n < 0) break;
-              }
-              return `<div class="excel-header-cell">${colName}</div>`;
-            }).join('')}
-          </div>
-          <div class="excel-rows-container">
-            ${sheet.rows.map((row, rowIndex) => {
-              const cells: string[] = [];
-              for (let i = 0; i < maxCols; i++) {
-                cells.push(row[i] || '');
-              }
-              return `
-                <div class="excel-row">
-                  <div class="excel-row-header">${rowIndex + 1}</div>
-                  ${cells.map((cell) => `
-                    <div class="excel-cell">${cell}</div>
-                  `).join('')}
-                </div>
-              `;
-            }).join('')}
-          </div>
-        </div>
-      </div>
-    </div>
-  `;
+    tab.addEventListener('click', () => {
+      sheetContainer.innerHTML = '';
+      renderSheet(sheet, sheetContainer);
+      tabsContainer.querySelectorAll('button').forEach(b => {
+        (b as HTMLButtonElement).style.fontWeight = '400';
+        (b as HTMLButtonElement).style.background = '#e2e8f0';
+      });
+      tab.style.fontWeight = '600';
+      tab.style.background = 'white';
+    });
+    tabsContainer.appendChild(tab);
+  });
 
-  container.innerHTML = html;
+  renderSheet(workbook.sheets[0], sheetContainer);
 
-  // 添加默认样式
-  const style = document.createElement('style');
-  style.textContent = defaultExcelCss();
-  container.appendChild(style);
+  container.appendChild(tabsContainer);
+  container.appendChild(sheetContainer);
 }
 
-export function defaultExcelCss(): string {
-  return `
-    .excel-viewer {
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-      font-size: 12px;
+function renderSheet(sheet: { name: string; rows: string[][] }, container: HTMLElement): void {
+  if (!sheet.rows.length) {
+    container.innerHTML = '<div style="padding: 16px; color: #64748b;">此工作表为空</div>';
+    return;
+  }
+
+  // Compute max column count
+  let maxCols = 0;
+  for (const row of sheet.rows) {
+    if (row.length > maxCols) maxCols = row.length;
+  }
+
+  const table = document.createElement('table');
+  table.style.cssText = 'border-collapse: collapse; font-size: 13px;';
+
+  const thead = document.createElement('thead');
+  const headRow = document.createElement('tr');
+  const corner = document.createElement('th');
+  corner.style.cssText = 'background: #f1f5f9; border: 1px solid #cbd5e1; padding: 4px 8px; min-width: 40px;';
+  headRow.appendChild(corner);
+  for (let c = 0; c < maxCols; c++) {
+    const th = document.createElement('th');
+    th.textContent = columnName(c);
+    th.style.cssText = 'background: #f1f5f9; border: 1px solid #cbd5e1; padding: 4px 8px; min-width: 100px; font-weight: 600;';
+    headRow.appendChild(th);
+  }
+  thead.appendChild(headRow);
+  table.appendChild(thead);
+
+  const tbody = document.createElement('tbody');
+  for (let r = 0; r < sheet.rows.length; r++) {
+    const tr = document.createElement('tr');
+    const rowH = document.createElement('td');
+    rowH.textContent = `${r + 1}`;
+    rowH.style.cssText = 'background: #f1f5f9; border: 1px solid #cbd5e1; padding: 4px 8px; text-align: center; font-weight: 600;';
+    tr.appendChild(rowH);
+
+    const row = sheet.rows[r];
+    for (let c = 0; c < maxCols; c++) {
+      const td = document.createElement('td');
+      const cellValue = row[c] || '';
+      td.textContent = cellValue;
+      td.style.cssText = 'border: 1px solid #cbd5e1; padding: 4px 8px; min-width: 100px; white-space: pre-wrap; word-break: break-word;';
+      tr.appendChild(td);
     }
-    
-    .excel-sheet-tabs {
-      display: flex;
-      background: #f3f4f6;
-      border-bottom: 1px solid #d1d5db;
-      padding: 4px 8px 0 8px;
-    }
-    
-    .excel-sheet-tab {
-      padding: 6px 16px;
-      background: white;
-      border: 1px solid #d1d5db;
-      border-bottom: none;
-      border-radius: 4px 4px 0 0;
-      margin-right: 4px;
-      cursor: pointer;
-      font-size: 12px;
-    }
-    
-    .excel-sheet-tab.active {
-      background: white;
-      border-bottom: 1px solid white;
-      margin-bottom: -1px;
-    }
-    
-    .excel-sheet-container {
-      overflow: hidden;
-    }
-    
-    .excel-grid-container {
-      display: flex;
-      flex-direction: column;
-    }
-    
-    .excel-header-row {
-      display: flex;
-      background: #f3f4f6;
-      position: sticky;
-      top: 0;
-      z-index: 10;
-    }
-    
-    .excel-header-cell {
-      min-width: 100px;
-      width: 100px;
-      padding: 4px 8px;
-      border-right: 1px solid #d1d5db;
-      border-bottom: 1px solid #d1d5db;
-      text-align: center;
-      font-weight: 600;
-      flex-shrink: 0;
-    }
-    
-    .excel-corner {
-      width: 40px;
-      min-width: 40px;
-      background: #f3f4f6;
-      border-right: 1px solid #d1d5db;
-      border-bottom: 1px solid #d1d5db;
-      flex-shrink: 0;
-    }
-    
-    .excel-rows-container {
-      overflow-y: auto;
-      max-height: 600px;
-    }
-    
-    .excel-row {
-      display: flex;
-    }
-    
-    .excel-row-header {
-      width: 40px;
-      min-width: 40px;
-      background: #f3f4f6;
-      border-right: 1px solid #d1d5db;
-      border-bottom: 1px solid #d1d5db;
-      padding: 4px 8px;
-      text-align: center;
-      font-weight: 600;
-      flex-shrink: 0;
-      position: sticky;
-      left: 0;
-      z-index: 5;
-    }
-    
-    .excel-cell {
-      min-width: 100px;
-      width: 100px;
-      padding: 4px 8px;
-      border-right: 1px solid #d0d7de;
-      border-bottom: 1px solid #d0d7de;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap;
-      flex-shrink: 0;
-    }
-  `;
+    tbody.appendChild(tr);
+  }
+  table.appendChild(tbody);
+  container.appendChild(table);
+}
+
+function columnName(col: number): string {
+  let name = '';
+  let n = col;
+  while (true) {
+    name = String.fromCharCode(65 + (n % 26)) + name;
+    n = Math.floor(n / 26) - 1;
+    if (n < 0) break;
+  }
+  return name;
 }

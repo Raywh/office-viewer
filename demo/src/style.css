@@ -247,6 +247,11 @@ body {
   flex: 1;
   overflow: auto;
   padding: 24px;
+  background: var(--background-color);
+}
+
+.preview-content > *:first-child {
+  margin-top: 0;
 }
 
 .docx-viewer {
@@ -255,6 +260,7 @@ body {
   background: white;
   padding: 1in;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  border-radius: 4px;
 }
 
 .docx-paragraph {
@@ -263,6 +269,58 @@ body {
 
 .docx-run {
   display: inline;
+}
+
+.excel-sheet-tabs {
+  display: flex;
+  background: var(--card-background);
+  border-bottom: 1px solid var(--border-color);
+  padding: 4px 8px 0 8px;
+  overflow-x: auto;
+}
+
+.excel-sheet-tab {
+  padding: 8px 16px;
+  background: transparent;
+  border: 1px solid var(--border-color);
+  border-bottom: none;
+  margin-right: 4px;
+  cursor: pointer;
+  font-size: 13px;
+  border-radius: 4px 4px 0 0;
+  color: var(--text-muted);
+}
+
+.excel-sheet-tab.active {
+  background: white;
+  color: var(--text-color);
+  font-weight: 600;
+}
+
+.excel-sheet-container {
+  overflow: auto;
+  background: white;
+}
+
+table {
+  border-collapse: collapse;
+  font-size: 13px;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+}
+
+table th, table td {
+  border: 1px solid #cbd5e1;
+  padding: 6px 10px;
+  min-width: 80px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+table th {
+  background: #f1f5f9;
+  font-weight: 600;
+  position: sticky;
+  top: 0;
 }
 
 @media (max-width: 1024px) {

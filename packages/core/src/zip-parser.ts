@@ -26,10 +26,8 @@ export class ZipPackage {
   private parts: Map<string, ZipPart> = new Map();
   private contentTypes: Map<string, string> = new Map();
   private relationships: Map<string, PackageRelationship[]> = new Map();
-  private globalRelationships: PackageRelationship[] = [];
   private allPartNames: string[] = [];
 
-  // 工厂方法来创建异步的 ZipPackage 实例
   static async create(data: ArrayBuffer): Promise<ZipPackage> {
     const pkg = new ZipPackage();
     await pkg.parse(data);
@@ -72,40 +70,39 @@ export class ZipPackage {
     const scanned: { [key: string]: { offset: number; name: string; compressedSize: number; uncompressedSize: number; compressionMethod: number } } = {};
 
     while (offset < view.length - 30) {
-      if (view[offset] === 0x50 && view[offset + 1] === 0x4b) {
-        if (view[offset + 2] === 0x03 && view[offset + 3] === 0x04) {
-          const result = this.readLocalFileHeader(view, offset);
-          if (result) {
+      // ZIP local file header signature: 0x04034b50
+      if (view[offset] === 0x50 && view[offset + 1] === 0x4b &&
+          view[offset + 2] === 0x03 && view[offset + 3] === 0x04) {
+        const result = this.readLocalFileHeader(view, offset);
+        if (result) {
+          if (!(result.name in scanned)) {
             scanned[result.name] = result;
             partNames.push(result.name);
-            offset = result.nextOffset;
-            continue;
           }
-        } else if (view[offset + 2] === 0x01 && view[offset + 3] === 0x02) {
-          offset += 46;
-          const fileNameLength = view[offset] | (view[offset + 1] << 8);
-          const extraFieldLength = view[offset + 2] | (view[offset + 3] << 8);
-          const fileCommentLength = view[offset + 4] | (view[offset + 5] << 8);
-          offset += 6 + fileNameLength + extraFieldLength + fileCommentLength;
+          offset = result.nextOffset;
           continue;
-        } else if (view[offset + 2] === 0x05 && view[offset + 3] === 0x06) {
-          break;
         }
+      } else if (view[offset] === 0x50 && view[offset + 1] === 0x4b &&
+                 view[offset + 2] === 0x01 && view[offset + 3] === 0x02) {
+        // Central directory file header: skip ~46 bytes + variable fields
+        if (offset + 46 <= view.length) {
+          const dv = new DataView(view.buffer, view.byteOffset + offset);
+          const fileNameLength = dv.getUint16(28, true);
+          const extraFieldLength = dv.getUint16(30, true);
+          const fileCommentLength = dv.getUint16(32, true);
+          offset += 46 + fileNameLength + extraFieldLength + fileCommentLength;
+          continue;
+        }
+      } else if (view[offset] === 0x50 && view[offset + 1] === 0x4b &&
+                 (view[offset + 2] === 0x05 || view[offset + 2] === 0x06)) {
+        // End of central directory / data descriptor
+        break;
       }
       offset++;
     }
 
     for (const entry of Object.values(scanned)) {
-      // 调试日志
-      if (entry.name.includes('document.xml') || entry.name.includes('slide')) {
-        console.log('[ZipPackage] Found entry:', entry.name);
-      }
-
       const partData = await this.extractPartData(view, entry);
-      
-      if (entry.name.includes('document.xml')) {
-        console.log('[ZipPackage] document.xml data length:', partData?.byteLength);
-      }
 
       if (partData) {
         const zipPart: ZipPart = {
@@ -117,14 +114,7 @@ export class ZipPackage {
           getXml(): Document {
             const parser = new DOMParser();
             const text = this.getText();
-            const xml = parser.parseFromString(text, 'application/xml');
-            
-            // 检查是否有解析错误
-            const errorNode = xml.querySelector('parsererror');
-            if (errorNode) {
-              console.warn('[ZipPackage] XML parse error for', entry.name);
-            }
-            return xml;
+            return parser.parseFromString(text, 'application/xml');
           },
         };
         parts.set(entry.name, zipPart);
@@ -134,7 +124,7 @@ export class ZipPackage {
         }
       }
     }
-    
+
     this.allPartNames = partNames;
 
     for (const [name, part] of parts.entries()) {
@@ -143,7 +133,7 @@ export class ZipPackage {
         if (name === '_rels/.rels') {
           relationships.set('', rels);
         } else {
-          const targetName = name.replace('_rels/', '').replace('.rels', '');
+          const targetName = name.replace(/_rels\//, '').replace(/\.rels$/, '');
           relationships.set(targetName, rels);
         }
       }
@@ -155,68 +145,147 @@ export class ZipPackage {
   private readLocalFileHeader(view: Uint8Array, offset: number) {
     if (offset + 30 > view.length) return null;
 
-    const compressionMethod = view[offset + 8] | (view[offset + 9] << 8);
-    const compressedSize = view[offset + 18] | (view[offset + 19] << 8) | (view[offset + 20] << 16) | (view[offset + 21] << 24);
-    const uncompressedSize = view[offset + 22] | (view[offset + 23] << 8) | (view[offset + 24] << 16) | (view[offset + 25] << 8);
-    const fileNameLength = view[offset + 26] | (view[offset + 27] << 8);
-    const extraFieldLength = view[offset + 28] | (view[offset + 29] << 8);
+    const dv = new DataView(view.buffer, view.byteOffset + offset);
+    // signature = dv.getUint32(0, true); // 0x04034b50
+    // version = dv.getUint16(4, true);
+    // flags = dv.getUint16(6, true);
+    const compressionMethod = dv.getUint16(8, true);
+    // modTime = dv.getUint16(10, true);
+    // modDate = dv.getUint16(12, true);
+    // crc32 = dv.getUint32(14, true);
+    const compressedSize = dv.getUint32(18, true);
+    const uncompressedSize = dv.getUint32(22, true);
+    const fileNameLength = dv.getUint16(26, true);
+    const extraFieldLength = dv.getUint16(28, true);
 
-    if (offset + 30 + fileNameLength + extraFieldLength > view.length) return null;
+    if (offset + 30 + fileNameLength + extraFieldLength + compressedSize > view.length + 1 &&
+        compressedSize !== 0) {
+      // If data descriptor is used (bit 3), sizes in local header are zero.
+      // In that case, we need to search for the next signature.
+      // For simplicity, try with compressedSize = 0 and fall through.
+    }
 
     const nameBytes = view.slice(offset + 30, offset + 30 + fileNameLength);
     const name = new TextDecoder('utf-8', { fatal: false }).decode(nameBytes);
 
+    const dataOffset = offset + 30 + fileNameLength + extraFieldLength;
+
+    // Handle data descriptor (ZIP flag bit 3): sizes follow the compressed data.
+    // The signature 0x08074b50 is optional. This is a best-effort detection.
+    let realCompressedSize = compressedSize;
+    if (compressedSize === 0 && uncompressedSize === 0) {
+      // Search for next local file header signature or EOCD
+      let searchOffset = dataOffset;
+      let found = false;
+      const searchLimit = Math.min(view.length - 4, dataOffset + 1024 * 1024 * 10);
+      while (searchOffset < searchLimit) {
+        if (view[searchOffset] === 0x50 && view[searchOffset + 1] === 0x4b &&
+            (view[searchOffset + 2] === 0x01 || view[searchOffset + 2] === 0x03 ||
+             view[searchOffset + 2] === 0x05 || view[searchOffset + 2] === 0x06 ||
+             view[searchOffset + 2] === 0x07 || view[searchOffset + 2] === 0x08)) {
+          // Check if this is actually a signature
+          const sig = view[searchOffset + 2];
+          if (sig === 0x03 || sig === 0x01 || sig === 0x05 || sig === 0x06) {
+            // Found next header. Calculate based on whether there's a data descriptor sig.
+            // Check if before this we have 0x08074b50
+            if (searchOffset >= 16 &&
+                view[searchOffset - 16] === 0x50 && view[searchOffset - 15] === 0x4b &&
+                view[searchOffset - 14] === 0x07 && view[searchOffset - 13] === 0x08) {
+              // Data descriptor with signature: 4 (sig) + 4 (crc) + 4 (compressed) + 4 (uncompressed) = 16
+              realCompressedSize = searchOffset - dataOffset - 16;
+            } else if (searchOffset >= 12) {
+              // Data descriptor without signature: 4 (crc) + 4 (compressed) + 4 (uncompressed) = 12
+              realCompressedSize = searchOffset - dataOffset - 12;
+            } else {
+              realCompressedSize = searchOffset - dataOffset;
+            }
+            found = true;
+            break;
+          }
+        }
+        searchOffset++;
+      }
+      if (!found) {
+        // Could not determine; use remaining bytes
+        realCompressedSize = view.length - dataOffset;
+      }
+    }
+
     return {
-      offset: offset + 30 + fileNameLength + extraFieldLength,
-      nextOffset: offset + 30 + fileNameLength + extraFieldLength + compressedSize,
+      offset: dataOffset,
+      nextOffset: dataOffset + realCompressedSize,
       name,
-      compressedSize,
+      compressedSize: realCompressedSize,
       uncompressedSize,
       compressionMethod,
     };
   }
 
   private async extractPartData(view: Uint8Array, entry: any): Promise<ArrayBuffer | null> {
-    console.log('[ZipPackage] extractPartData for', entry.name, 'compressionMethod:', entry.compressionMethod);
     if (entry.compressionMethod === 0) {
-      // 未压缩，直接返回
-      return view.slice(entry.offset, entry.offset + entry.compressedSize).buffer;
+      // Stored (no compression)
+      const slice = view.slice(entry.offset, entry.offset + entry.compressedSize);
+      return slice.buffer.slice(slice.byteOffset, slice.byteOffset + slice.byteLength);
     } else if (entry.compressionMethod === 8) {
-      // DEFLATE 压缩，使用浏览器原生解压
-      console.log('[ZipPackage] Decompressing DEFLATE data for', entry.name);
+      // DEFLATE
       const compressedData = view.slice(entry.offset, entry.offset + entry.compressedSize);
       try {
         const ds = new DecompressionStream('deflate-raw');
         const writer = ds.writable.getWriter();
         writer.write(compressedData);
         writer.close();
-        
+
         const reader = ds.readable.getReader();
         const chunks: Uint8Array[] = [];
+        let totalLength = 0;
         let result;
         do {
           result = await reader.read();
           if (result.value) {
             chunks.push(result.value);
+            totalLength += result.value.length;
           }
         } while (!result.done);
-        
-        // 合并所有 chunk
-        const totalLength = chunks.reduce((acc, c) => acc + c.length, 0);
+
         const decompressed = new Uint8Array(totalLength);
-        let offset = 0;
+        let pos = 0;
         for (const chunk of chunks) {
-          decompressed.set(chunk, offset);
-          offset += chunk.length;
+          decompressed.set(chunk, pos);
+          pos += chunk.length;
         }
-        console.log('[ZipPackage] Decompressed', compressedData.length, '→', decompressed.length, 'bytes for', entry.name);
         return decompressed.buffer;
       } catch (error) {
-        console.error('[ZipPackage] Decompression failed:', error);
-        return new ArrayBuffer(0);
+        // Fallback: try with 'deflate' (without -raw)
+        try {
+          const ds = new DecompressionStream('deflate');
+          const writer = ds.writable.getWriter();
+          writer.write(compressedData);
+          writer.close();
+          const reader = ds.readable.getReader();
+          const chunks: Uint8Array[] = [];
+          let totalLength = 0;
+          let result;
+          do {
+            result = await reader.read();
+            if (result.value) {
+              chunks.push(result.value);
+              totalLength += result.value.length;
+            }
+          } while (!result.done);
+          const decompressed = new Uint8Array(totalLength);
+          let pos = 0;
+          for (const chunk of chunks) {
+            decompressed.set(chunk, pos);
+            pos += chunk.length;
+          }
+          return decompressed.buffer;
+        } catch (e2) {
+          console.error('[ZipPackage] DEFLATE decompression failed for', entry.name, e2);
+          return new ArrayBuffer(0);
+        }
       }
     }
-    console.warn('[ZipPackage] Unsupported compression method:', entry.compressionMethod);
+    console.warn('[ZipPackage] Unsupported compression method for', entry.name, ':', entry.compressionMethod);
     return new ArrayBuffer(0);
   }
 
@@ -300,32 +369,46 @@ export class ZipPackage {
   }
 
   getPart(path: string): ZipPart | null {
-    // 调试信息：列出所有可用的部分
-    console.log('[ZipPackage] Looking for part:', path);
-    console.log('[ZipPackage] Available parts:', Array.from(this.parts.keys()));
-
-    // 尝试精确匹配
+    // Exact match
     if (this.parts.has(path)) {
-      console.log('[ZipPackage] Exact match found:', path);
       return this.parts.get(path)!;
     }
 
-    // 尝试不带前导斜杠
+    // Strip leading slash
     const pathWithoutSlash = path.startsWith('/') ? path.slice(1) : path;
     if (this.parts.has(pathWithoutSlash)) {
-      console.log('[ZipPackage] Found without leading slash:', pathWithoutSlash);
       return this.parts.get(pathWithoutSlash)!;
     }
 
-    // 尝试带前导斜杠
+    // Add leading slash
     const pathWithSlash = !path.startsWith('/') ? '/' + path : path;
     if (this.parts.has(pathWithSlash)) {
-      console.log('[ZipPackage] Found with leading slash:', pathWithSlash);
       return this.parts.get(pathWithSlash)!;
     }
 
-    console.log('[ZipPackage] Part not found:', path);
+    // Case-insensitive match (some libraries produce uppercase paths)
+    const lowerPath = path.toLowerCase();
+    for (const [key, part] of this.parts.entries()) {
+      if (key.toLowerCase() === lowerPath ||
+          key.toLowerCase() === pathWithoutSlash.toLowerCase() ||
+          '/' + key.toLowerCase() === lowerPath) {
+        return part;
+      }
+    }
+
     return null;
+  }
+
+  getPartsByPrefix(prefix: string): ZipPart[] {
+    const result: ZipPart[] = [];
+    const norm = prefix.replace(/^\/+/, '').toLowerCase();
+    for (const [key, part] of this.parts.entries()) {
+      const k = key.toLowerCase();
+      if (k === norm || k.startsWith(norm + '/') || k.startsWith(norm)) {
+        result.push(part);
+      }
+    }
+    return result;
   }
 
   getPartsByContentType(contentType: string): ZipPart[] {

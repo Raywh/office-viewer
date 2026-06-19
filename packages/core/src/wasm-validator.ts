@@ -54,8 +54,8 @@ export class WasmValidator {
     module: WebAssembly.Module,
     options?: SandboxOptions
   ): Promise<WebAssembly.Instance> {
-    const { 
-      memoryLimit = 64 * 1024 * 1024, 
+    const {
+      memoryLimit = 64 * 1024 * 1024,
       executionTimeout = 5000,
       allowedImports = []
     } = options || {};

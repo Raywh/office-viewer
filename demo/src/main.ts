@@ -58,30 +58,36 @@ async function renderByFormat(
   container: HTMLElement
 ): Promise<{ summary: string }> {
   const startTime = Date.now();
-  
+
   try {
     const module = await loadViewerModule(format);
-    
+
     if (format === 'docx' && module.renderAsync) {
       await module.renderAsync(data, container);
-    } else if (format === 'doc' && module.parseMsDoc) {
-      const parsed = module.parseMsDoc(data);
-      const rendered = module.renderMsDoc(parsed);
-      module.mountMsDoc(container, rendered);
+    } else if (format === 'doc') {
+      const parsed = module.parseMsDoc ? module.parseMsDoc(data) : null;
+      if (module.mountMsDoc && parsed) {
+        module.mountMsDoc(container, { content: parsed.text });
+      } else {
+        container.innerHTML = '<div style="padding: 24px; color: #64748b;">老格式 .doc 文件暂不支持预览。</div>';
+      }
     } else if ((format === 'xlsx' || format === 'xls') && module.mountExcel) {
       const workbook = await module.parseExcelWorkbook(data);
       module.mountExcel(container, workbook);
     } else if (format === 'pptx' && module.renderPresentationToElement) {
       const parsed = await module.parsePptx(data);
-      module.renderPresentationToElement(parsed, container, { virtualize: true });
+      module.renderPresentationToElement(parsed, container);
+    } else if (format === 'ppt') {
+      container.innerHTML = '<div style="padding: 24px; color: #64748b;">老格式 .ppt 文件暂不支持预览。</div>';
     }
-    
+
     const duration = Date.now() - startTime;
-    updateDiagnostics(`Rendered in ${duration}ms`);
-    
+    updateDiagnostics(`渲染完成，耗时 ${duration}ms`);
     return { summary: `Rendered in ${duration}ms` };
   } catch (error) {
-    updateDiagnostics(`Error: ${error}`);
+    console.error('Render error:', error);
+    updateDiagnostics(`错误: ${error}`);
+    container.innerHTML = `<div style="padding: 24px; color: #ef4444;">预览失败: ${error}</div>`;
     throw error;
   }
 }
@@ -168,7 +174,7 @@ async function handleFile(file: File): Promise<void> {
         'xls': 'xls',
         'xlsx': 'xlsx',
       };
-      format = extMap[ext] || 'unknown';
+      format = (extMap[ext] || 'unknown') as typeof format;
     }
   }
   

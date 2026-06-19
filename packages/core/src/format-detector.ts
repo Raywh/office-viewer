@@ -6,43 +6,33 @@ const CFB_MAGIC = [0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1];
 const EXTENSION_MAP: Record<string, FileFormat> = {
   '.doc': 'doc',
   '.docx': 'docx',
+  '.docm': 'docx',
+  '.dotx': 'docx',
   '.ppt': 'ppt',
   '.pptx': 'pptx',
+  '.pptm': 'pptx',
   '.xls': 'xls',
   '.xlsx': 'xlsx',
-};
-
-const MIME_TYPE_MAP: Record<string, FileFormat> = {
-  'application/msword': 'doc',
-  'application/vnd.openxmlformats-officedocument.wordprocessingml.document': 'docx',
-  'application/vnd.ms-powerpoint': 'ppt',
-  'application/vnd.openxmlformats-officedocument.presentationml.presentation': 'pptx',
-  'application/vnd.ms-excel': 'xls',
-  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': 'xlsx',
+  '.xlsm': 'xlsx',
 };
 
 export function detectFormat(
   data: ArrayBuffer | Blob | File,
   options?: { filename?: string; mimeType?: string }
 ): FileFormat {
+  // 1. By extension (fastest, covers most cases)
   if (options?.filename) {
-    const ext = options.filename.toLowerCase().slice(-5);
-    for (const [extKey, format] of Object.entries(EXTENSION_MAP)) {
-      if (ext.endsWith(extKey)) {
-        return format;
-      }
+    const lower = options.filename.toLowerCase();
+    for (const [ext, fmt] of Object.entries(EXTENSION_MAP)) {
+      if (lower.endsWith(ext)) return fmt;
     }
   }
 
-  if (options?.mimeType && MIME_TYPE_MAP[options.mimeType]) {
-    return MIME_TYPE_MAP[options.mimeType];
-  }
-
+  // 2. By content inspection for ArrayBuffer
   if (data instanceof ArrayBuffer) {
     return detectFromArrayBuffer(data);
   }
 
-  // For Blob/File, we can't read synchronously,  rely on filename first
   return 'unknown';
 }
 
@@ -50,11 +40,11 @@ function detectFromArrayBuffer(data: ArrayBuffer): FileFormat {
   const view = new Uint8Array(data);
 
   if (isZipFormat(view)) {
-    return detectZipFormat(data);
+    return detectZipFormat(data, view);
   }
 
   if (isCompoundFileBinary(view)) {
-    return detectCfbFormat(data);
+    return detectCfbFormat(data, view);
   }
 
   return 'unknown';
@@ -72,92 +62,58 @@ function isCompoundFileBinary(view: Uint8Array): boolean {
   return true;
 }
 
-function detectZipFormat(data: ArrayBuffer): FileFormat {
-  try {
-    const view = new Uint8Array(data);
-    const textDecoder = new TextDecoder('utf-8', { fatal: false });
-
-    const zipScan = scanForZipSignatures(view);
-
-    if (zipScan.includes('word/')) return 'docx';
-    if (zipScan.includes('ppt/')) return 'pptx';
-    if (zipScan.includes('xl/')) return 'xlsx';
-
-    if (zipScan.includes('[Content_Types]')) {
-      const contentTypes = extractContentTypes(view);
-      if (contentTypes.includes('wordprocessingml')) return 'docx';
-      if (contentTypes.includes('presentationml')) return 'pptx';
-      if (contentTypes.includes('spreadsheetml')) return 'xlsx';
-    }
-
-    return 'docx';
-  } catch {
-    return 'docx';
-  }
-}
-
-function detectCfbFormat(data: ArrayBuffer): FileFormat {
-  try {
-    const view = new Uint8Array(data);
-    const textDecoder = new TextDecoder('utf-8', { fatal: false });
-
-    const scan = textDecoder.decode(view.slice(0, Math.min(1024, view.length)));
-
-    if (scan.includes('WordDocument')) return 'doc';
-    if (scan.includes('PowerPoint')) return 'ppt';
-    if (scan.includes('Workbook')) return 'xls';
-
-    if (scan.includes('Microsoft Word')) return 'doc';
-    if (scan.includes('Microsoft PowerPoint')) return 'ppt';
-    if (scan.includes('Microsoft Excel')) return 'xls';
-
-    return 'doc';
-  } catch {
-    return 'doc';
-  }
-}
-
-function scanForZipSignatures(view: Uint8Array): string {
-  const result: string[] = [];
+function detectZipFormat(_data: ArrayBuffer, view: Uint8Array): FileFormat {
+  // Scan local file records to find known OOXML part names.
+  // We search for path fragments like "word/" or "ppt/slides/" inside the local file headers.
   const textDecoder = new TextDecoder('utf-8', { fatal: false });
+  const scanLimit = Math.min(view.length, 512 * 1024);
 
-  for (let i = 0; i < Math.min(view.length - 100, 65536); i += 2) {
-    if (view[i] === 0x50 && view[i + 1] === 0x4b) {
-      if (i + 30 < view.length) {
-        const nameLen = view[i + 26] | (view[i + 27] << 8);
-        if (nameLen > 0 && i + 30 + nameLen < view.length) {
-          const name = textDecoder.decode(view.slice(i + 30, i + 30 + nameLen));
-          result.push(name);
-        }
-      }
+  let offset = 0;
+  const found: Record<string, boolean> = { word: false, ppt: false, xl: false };
+
+  while (offset < scanLimit - 30) {
+    if (view[offset] === 0x50 && view[offset + 1] === 0x4b &&
+        view[offset + 2] === 0x03 && view[offset + 3] === 0x04) {
+      // Local file header signature; read file name length.
+      const fileNameLength = view[offset + 26] | (view[offset + 27] << 8);
+      const extraFieldLength = view[offset + 28] | (view[offset + 29] << 8);
+      if (offset + 30 + fileNameLength > view.length) break;
+      const name = textDecoder.decode(view.slice(offset + 30, offset + 30 + fileNameLength)).toLowerCase();
+
+      if (name.startsWith('word/')) found.word = true;
+      if (name.startsWith('ppt/')) found.ppt = true;
+      if (name.startsWith('xl/')) found.xl = true;
+
+      offset += 30 + fileNameLength + extraFieldLength + 4; // advance roughly
+    } else {
+      offset++;
     }
   }
 
-  return result.join('|');
+  if (found.word) return 'docx';
+  if (found.xl) return 'xlsx';
+  if (found.ppt) return 'pptx';
+
+  // Fallback: scan content types
+  const ctScanLimit = Math.min(view.length, 512 * 1024);
+  const firstKB = textDecoder.decode(view.slice(0, ctScanLimit));
+  if (firstKB.includes('wordprocessingml')) return 'docx';
+  if (firstKB.includes('spreadsheetml')) return 'xlsx';
+  if (firstKB.includes('presentationml')) return 'pptx';
+
+  return 'unknown';
 }
 
-function extractContentTypes(view: Uint8Array): string {
-  const textDecoder = new TextDecoder('utf-8', { fatal: false });
+function detectCfbFormat(_data: ArrayBuffer, view: Uint8Array): FileFormat {
+  // CFB (binary Office). Read the directory / stream names to detect the kind.
+  // Lightweight approach: look for known signature strings in the first bytes.
+  const decoder = new TextDecoder('utf-8', { fatal: false });
+  const scanLen = Math.min(view.length, 256 * 1024);
+  const scan = decoder.decode(view.slice(0, scanLen));
 
-  for (let i = 0; i < Math.min(view.length - 100, 131072); i += 2) {
-    if (view[i] === 0x50 && view[i + 1] === 0x4b) {
-      if (i + 30 < view.length) {
-        const nameLen = view[i + 26] | (view[i + 27] << 8);
-        const extraLen = view[i + 28] | (view[i + 29] << 8);
-        if (nameLen > 0 && i + 30 + nameLen < view.length) {
-          const name = textDecoder.decode(view.slice(i + 30, i + 30 + nameLen));
-          if (name.includes('Content_Types')) {
-            const dataStart = i + 30 + nameLen + extraLen;
-            const compressedSize = view[i + 18] | (view[i + 19] << 8) | (view[i + 20] << 16) | (view[i + 21] << 24);
-            if (dataStart + compressedSize < view.length) {
-              return textDecoder.decode(view.slice(dataStart, dataStart + Math.min(compressedSize, 4096)));
-            }
-          }
-        }
-      }
-    }
-  }
+  if (scan.includes('WordDocument')) return 'doc';
+  if (scan.includes('Workbook') || scan.includes('\x05Book')) return 'xls';
+  if (scan.includes('PowerPoint') || scan.includes('Current User')) return 'ppt';
 
-  return '';
+  return 'unknown';
 }
-

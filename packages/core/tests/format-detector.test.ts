@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { detectFormat, FileFormat } from '../src/format-detector';
+import { detectFormat } from '../src/format-detector';
 
 describe('format-detector', () => {
   describe('detectFormat', () => {

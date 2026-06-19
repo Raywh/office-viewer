@@ -11,7 +11,6 @@ export interface RenderOptions {
 
 export class ExcelRenderer {
   private options: RenderOptions;
-  private container: HTMLElement | null = null;
 
   constructor(options?: Partial<RenderOptions>) {
     this.options = {
@@ -26,7 +25,6 @@ export class ExcelRenderer {
   }
 
   render(workbook: Workbook, container: HTMLElement): void {
-    this.container = container;
     container.innerHTML = '';
 
     const tabsContainer = document.createElement('div');
@@ -61,7 +59,7 @@ export class ExcelRenderer {
   }
 
   private activateSheet(
-    workbook: Workbook,
+    _workbook: Workbook,
     sheet: Sheet,
     container: HTMLElement
   ): void {
@@ -177,7 +175,7 @@ export class ExcelRenderer {
     return rowEl;
   }
 
-  private createCell(cell: Cell | undefined, colIndex: number): HTMLElement {
+  private createCell(cell: Cell | undefined, _colIndex: number): HTMLElement {
     const cellEl = document.createElement('div');
     cellEl.className = 'excel-cell';
     cellEl.style.minWidth = `${this.options.defaultColumnWidth}px`;
